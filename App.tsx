@@ -33,7 +33,7 @@ export const useApp = () => {
 
 const App: React.FC = () => {
   const [state, setState] = useState<UserState>(() => {
-    const saved = localStorage.getItem('aura_journal_state');
+    const saved = localStorage.getItem('Ritual_journal_state');
     if (saved) return JSON.parse(saved);
     return {
       startDate: null,
@@ -54,7 +54,7 @@ const App: React.FC = () => {
   }, [state.startDate]);
 
   useEffect(() => {
-    localStorage.setItem('aura_journal_state', JSON.stringify(state));
+    localStorage.setItem('Ritual_journal_state', JSON.stringify(state));
   }, [state]);
 
   const updateEntry = (day: number, content: string, isLocked: boolean) => {
@@ -77,7 +77,7 @@ const App: React.FC = () => {
   const resetProgress = () => {
     if (window.confirm("Are you sure you want to reset all your progress? This cannot be undone.")) {
       setState({ startDate: null, entries: {} });
-      localStorage.removeItem('aura_journal_state');
+      localStorage.removeItem('Ritual_journal_state');
       window.location.reload();
     }
   };
@@ -89,7 +89,7 @@ const App: React.FC = () => {
           {/* Desktop Sidebar */}
           <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 py-12 px-6">
             <div className="mb-12">
-              <h1 className="text-3xl font-serif italic font-semibold tracking-tight text-stone-800">Aura</h1>
+              <h1 className="text-3xl font-serif italic font-semibold tracking-tight text-stone-800">Ritual</h1>
               <p className="text-xs uppercase tracking-widest text-stone-400 mt-2">Self-Reflection Journal</p>
             </div>
             <nav className="flex flex-col gap-6">
