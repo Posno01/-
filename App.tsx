@@ -1,243 +1,156 @@
-import { useEffect, useState } from "react";
 
-/* =========================
-   질문 데이터 (예시)
-   ========================= */
-const QUESTIONS = [
-  {
-    day: 1,
-    ko: "가장 자주 찾아오지만 말로 표현하지 않는 감정은 무엇인가요?",
-    en: "Which emotion visits you most often, yet remains unspoken?",
-  },
-  {
-    day: 2,
-    ko: "최근 한 달 동안 나를 가장 많이 흔든 사건은 무엇이었나요?",
-    en: "What event has shaken you most this past month?",
-  },
-  // 👉 Day 90까지 동일한 형식으로 추가 가능
-];
+import React, { useState, useEffect, useMemo, createContext, useContext } from 'react';
+import { HashRouter as Router, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
+import { LucideHome, LucideBookOpen, LucideList, LucideGift, LucideBarChart2, LucideSettings, LucideChevronLeft, LucideChevronRight, LucideCheckCircle2 } from 'lucide-react';
+import { PROMPTS } from './data/prompts';
+import { BONUS_CARDS } from './data/bonus';
+import { UserState, JournalEntry } from './types';
 
-/* =========================
-   페이지 타입
-   ========================= */
-type Page = "home" | "today" | "journal";
+// Pages
+import Home from './pages/Home';
+import Today from './pages/Today';
+import MyJournal from './pages/MyJournal';
+import AllQuestions from './pages/AllQuestions';
+import BonusCards from './pages/BonusCards';
+import Progress from './pages/Progress';
+import Settings from './pages/Settings';
 
-export default function App() {
-  /* 현재 페이지 */
-  const [page, setPage] = useState<Page>("home");
-
-  return (
-    <div className="min-h-screen flex bg-[#F7F5F2]">
-      <Sidebar page={page} setPage={setPage} />
-
-      <main className="flex-1 px-12 py-10">
-        {page === "home" && <HomeView setPage={setPage} />}
-        {page === "today" && <TodayView />}
-        {page === "journal" && <JournalView />}
-      </main>
-    </div>
-  );
+// Context
+interface AppContextType {
+  state: UserState;
+  currentDayIndex: number;
+  updateEntry: (day: number, content: string, isLocked: boolean) => void;
+  resetProgress: () => void;
 }
 
-/* =========================
-   Sidebar
-   ========================= */
-function Sidebar({
-  page,
-  setPage,
-}: {
-  page: Page;
-  setPage: (p: Page) => void;
-}) {
-  const item = (key: Page, label: string) => (
-    <button
-      onClick={() => setPage(key)}
-      className={`w-full text-left px-4 py-2 rounded-lg mb-1 transition
-        ${
-          page === key
-            ? "bg-white shadow-sm text-black"
-            : "opacity-70 hover:opacity-100"
-        }`}
-    >
-      {label}
-    </button>
-  );
+const AppContext = createContext<AppContextType | undefined>(undefined);
 
-  return (
-    <aside className="w-64 px-6 py-10">
-      <h1 className="font-serif text-2xl mb-10">Aura</h1>
-      {item("home", "Home")}
-      {item("today", "Today's Question")}
-      {item("journal", "My Journal")}
-    </aside>
-  );
-}
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) throw new Error('useApp must be used within AppProvider');
+  return context;
+};
 
-/* =========================
-   Home View
-   ========================= */
-function HomeView({ setPage }: { setPage: (p: Page) => void }) {
-  const currentDay =
-    Number(localStorage.getItem("aura-current-day")) || 1;
-
-  const writtenCount = Object.keys(localStorage).filter((key) =>
-    key.startsWith("aura-answer-")
-  ).length;
-
-  return (
-    <div>
-      <h2 className="font-serif text-4xl mb-4">
-        One question a day.
-        <br />A quieter, clearer version of you.
-      </h2>
-
-      <p className="text-gray-600 mb-10">
-        Welcome back. Today marks Day {currentDay} of your 90-day reflection journey.
-      </p>
-
-      <div className="bg-white rounded-2xl p-8 shadow-sm flex justify-between items-center">
-        <div>
-          <p className="text-sm text-gray-400 mb-1">YOUR JOURNEY</p>
-          <p className="text-3xl font-serif">
-            {currentDay} / 90 Days
-          </p>
-          <p className="text-sm text-gray-500 mt-2">
-            {writtenCount} entries written so far.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setPage("today")}
-          className="px-6 py-3 bg-black text-white rounded-full"
-        >
-          Open Today’s Question →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   Today Question View
-   ========================= */
-function TodayView() {
-  const [currentDay, setCurrentDay] = useState<number>(() => {
-    const saved = localStorage.getItem("aura-current-day");
-    return saved ? Number(saved) : 1;
+const App: React.FC = () => {
+  const [state, setState] = useState<UserState>(() => {
+    const saved = localStorage.getItem('aura_journal_state');
+    if (saved) return JSON.parse(saved);
+    return {
+      startDate: null,
+      entries: {}
+    };
   });
 
-  const [answer, setAnswer] = useState<string>("");
+  // Calculate current day based on start date
+  const currentDayIndex = useMemo(() => {
+    if (!state.startDate) return 0;
+    const start = new Date(state.startDate);
+    const today = new Date();
+    const diffTime = Math.abs(today.getTime() - start.getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    // Users advance one day at a time, but we don't let them jump ahead
+    // If they skipped days, they should still be on their "relative" day from start
+    return Math.min(89, diffDays);
+  }, [state.startDate]);
 
   useEffect(() => {
-    const savedAnswer = localStorage.getItem(
-      `aura-answer-${currentDay}`
-    );
-    setAnswer(savedAnswer || "");
-  }, [currentDay]);
+    localStorage.setItem('aura_journal_state', JSON.stringify(state));
+  }, [state]);
 
-  const question =
-    QUESTIONS.find((q) => q.day === currentDay) || QUESTIONS[0];
-
-  return (
-    <div className="max-w-xl">
-      <h1 className="text-sm tracking-widest text-gray-400 mb-2">
-        DAY {currentDay} / 90
-      </h1>
-
-      <h2 className="text-xl font-semibold mb-2">
-        {question.ko}
-      </h2>
-
-      <p className="italic text-gray-600 mb-6">
-        {question.en}
-      </p>
-
-      <textarea
-        value={answer}
-        onChange={(e) => {
-          setAnswer(e.target.value);
-          localStorage.setItem(
-            `aura-answer-${currentDay}`,
-            e.target.value
-          );
-        }}
-        placeholder="여기에 오늘의 답을 적어보세요."
-        className="w-full h-40 p-4 border rounded-xl resize-none focus:outline-none focus:ring-1"
-      />
-
-      <div className="flex justify-between mt-8">
-        <button
-          disabled={currentDay === 1}
-          onClick={() => {
-            const prev = currentDay - 1;
-            setCurrentDay(prev);
-            localStorage.setItem("aura-current-day", String(prev));
-          }}
-          className="text-sm text-gray-500 disabled:opacity-30"
-        >
-          ← 이전
-        </button>
-
-        <button
-          onClick={() => {
-            if (currentDay < 90) {
-              const next = currentDay + 1;
-              setCurrentDay(next);
-              localStorage.setItem(
-                "aura-current-day",
-                String(next)
-              );
-            }
-          }}
-          className="px-6 py-2 bg-black text-white rounded-full"
-        >
-          다음 →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   Journal View
-   ========================= */
-function JournalView() {
-  const entries = Object.keys(localStorage)
-    .filter((key) => key.startsWith("aura-answer-"))
-    .map((key) => {
-      const day = key.replace("aura-answer-", "");
-      return {
+  const updateEntry = (day: number, content: string, isLocked: boolean) => {
+    setState(prev => {
+      const newState = { ...prev };
+      // If it's the first time writing anything, set the start date to today
+      if (!newState.startDate) {
+        newState.startDate = new Date().toISOString();
+      }
+      newState.entries[day] = {
         day,
-        text: localStorage.getItem(key) || "",
+        content,
+        date: new Date().toLocaleDateString(),
+        isLocked
       };
-    })
-    .sort((a, b) => Number(a.day) - Number(b.day));
+      return newState;
+    });
+  };
+
+  const resetProgress = () => {
+    if (window.confirm("Are you sure you want to reset all your progress? This cannot be undone.")) {
+      setState({ startDate: null, entries: {} });
+      localStorage.removeItem('aura_journal_state');
+      window.location.reload();
+    }
+  };
 
   return (
-    <div className="max-w-2xl">
-      <h2 className="font-serif text-2xl mb-6">My Journal</h2>
+    <AppContext.Provider value={{ state, currentDayIndex, updateEntry, resetProgress }}>
+      <Router>
+        <div className="min-h-screen flex flex-col md:flex-row max-w-7xl mx-auto md:px-4 lg:px-8">
+          {/* Desktop Sidebar */}
+          <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 py-12 px-6">
+            <div className="mb-12">
+              <h1 className="text-3xl font-serif italic font-semibold tracking-tight text-stone-800">Aura</h1>
+              <p className="text-xs uppercase tracking-widest text-stone-400 mt-2">Self-Reflection Journal</p>
+            </div>
+            <nav className="flex flex-col gap-6">
+              <NavLink to="/" icon={<LucideHome size={20} />} label="Home" />
+              <NavLink to="/today" icon={<LucideBookOpen size={20} />} label="Today's Question" />
+              <NavLink to="/journal" icon={<LucideList size={20} />} label="My Journal" />
+              <NavLink to="/all" icon={<LucideList size={20} />} label="All Questions" />
+              <NavLink to="/bonus" icon={<LucideGift size={20} />} label="Bonus Cards" />
+              <NavLink to="/progress" icon={<LucideBarChart2 size={20} />} label="Progress" />
+            </nav>
+            <div className="mt-auto pt-6 border-t border-stone-200">
+              <NavLink to="/settings" icon={<LucideSettings size={20} />} label="Settings" />
+            </div>
+          </aside>
 
-      {entries.length === 0 && (
-        <p className="text-gray-500">
-          아직 작성된 기록이 없습니다.
-        </p>
-      )}
+          {/* Mobile Navigation (Bottom) */}
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-stone-200 px-4 py-3 flex justify-around items-center z-50">
+            <MobileNavLink to="/" icon={<LucideHome size={20} />} />
+            <MobileNavLink to="/today" icon={<LucideBookOpen size={20} />} />
+            <MobileNavLink to="/journal" icon={<LucideList size={20} />} />
+            <MobileNavLink to="/progress" icon={<LucideBarChart2 size={20} />} />
+            <MobileNavLink to="/settings" icon={<LucideSettings size={20} />} />
+          </nav>
 
-      <ul className="space-y-4">
-        {entries.map((entry) => (
-          <li
-            key={entry.day}
-            className="bg-white p-4 rounded-xl shadow-sm"
-          >
-            <p className="text-sm text-gray-400 mb-1">
-              Day {entry.day}
-            </p>
-            <p className="whitespace-pre-wrap text-gray-800">
-              {entry.text}
-            </p>
-          </li>
-        ))}
-      </ul>
-    </div>
+          {/* Main Content */}
+          <main className="flex-1 px-4 py-8 md:py-16 pb-24 md:pb-16 overflow-y-auto">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/today" element={<Today />} />
+              <Route path="/journal" element={<MyJournal />} />
+              <Route path="/all" element={<AllQuestions />} />
+              <Route path="/bonus" element={<BonusCards />} />
+              <Route path="/progress" element={<Progress />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </main>
+        </div>
+      </Router>
+    </AppContext.Provider>
   );
-}
+};
+
+const NavLink: React.FC<{ to: string, icon: React.ReactNode, label: string }> = ({ to, icon, label }) => {
+  const location = useLocation();
+  const isActive = location.pathname === to;
+  return (
+    <Link to={to} className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${isActive ? 'bg-stone-100 text-stone-900 font-medium' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-50'}`}>
+      {icon}
+      <span>{label}</span>
+    </Link>
+  );
+};
+
+const MobileNavLink: React.FC<{ to: string, icon: React.ReactNode }> = ({ to, icon }) => {
+  const location = useLocation();
+  const isActive = location.pathname === to;
+  return (
+    <Link to={to} className={`p-2 rounded-full transition-all ${isActive ? 'bg-stone-900 text-white shadow-lg' : 'text-stone-400'}`}>
+      {icon}
+    </Link>
+  );
+};
+
+export default App;
